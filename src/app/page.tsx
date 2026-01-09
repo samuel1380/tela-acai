@@ -60,6 +60,103 @@ export default function Home() {
   // --- UI State ---
   const [isCopied, setIsCopied] = useState(false);
 
+  // --- Location State ---
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(() => {
+    return "";
+  });
+  const [selectedCity, setSelectedCity] = useState(() => {
+    return "";
+  });
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false);
+  const [citiesByState, setCitiesByState] = useState<Record<string, string[]>>({});
+  const [locationFound, setLocationFound] = useState<{ distance: string; city: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem("user-location");
+      if (!stored) {
+        setIsLocationModalOpen(true);
+        return;
+      }
+      const parsed = JSON.parse(stored);
+      if (parsed.stateUF) {
+        setSelectedLocation(parsed.stateUF);
+      }
+      if (parsed.city) {
+        setSelectedCity(parsed.city);
+      }
+      const hasCompleteLocation = parsed.stateUF && parsed.city;
+      setIsLocationModalOpen(!hasCompleteLocation);
+    } catch {
+      setIsLocationModalOpen(true);
+    }
+  }, []);
+
+  const BRAZIL_STATES = [
+    { uf: 'AC', name: 'Acre' }, { uf: 'AL', name: 'Alagoas' }, { uf: 'AP', name: 'Amapá' },
+    { uf: 'AM', name: 'Amazonas' }, { uf: 'BA', name: 'Bahia' }, { uf: 'CE', name: 'Ceará' },
+    { uf: 'DF', name: 'Distrito Federal' }, { uf: 'ES', name: 'Espírito Santo' }, { uf: 'GO', name: 'Goiás' },
+    { uf: 'MA', name: 'Maranhão' }, { uf: 'MT', name: 'Mato Grosso' }, { uf: 'MS', name: 'Mato Grosso do Sul' },
+    { uf: 'MG', name: 'Minas Gerais' }, { uf: 'PA', name: 'Pará' }, { uf: 'PB', name: 'Paraíba' },
+    { uf: 'PR', name: 'Paraná' }, { uf: 'PE', name: 'Pernambuco' }, { uf: 'PI', name: 'Piauí' },
+    { uf: 'RJ', name: 'Rio de Janeiro' }, { uf: 'RN', name: 'Rio Grande do Norte' }, { uf: 'RS', name: 'Rio Grande do Sul' },
+    { uf: 'RO', name: 'Rondônia' }, { uf: 'RR', name: 'Roraima' }, { uf: 'SC', name: 'Santa Catarina' },
+    { uf: 'SP', name: 'São Paulo' }, { uf: 'SE', name: 'Sergipe' }, { uf: 'TO', name: 'Tocantins' }
+  ];
+
+  const handleStateSelect = (stateUF: string) => {
+    setSelectedLocation(stateUF);
+    setSelectedCity("");
+    setLocationFound(null);
+
+    if (citiesByState[stateUF] && citiesByState[stateUF].length > 0) return;
+
+    const fetchCities = async () => {
+      try {
+        const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${stateUF}/municipios`);
+        if (!response.ok) {
+          throw new Error("Failed to load cities");
+        }
+        const data = await response.json();
+        const names = (data as Array<{ nome: string }>).map(item => item.nome).sort((a, b) =>
+          a.localeCompare(b, "pt-BR")
+        );
+        setCitiesByState(prev => ({ ...prev, [stateUF]: names }));
+      } catch {
+        setCitiesByState(prev => ({ ...prev, [stateUF]: prev[stateUF] || [] }));
+      }
+    };
+
+    fetchCities();
+  };
+
+  const handleCitySelect = (cityName: string) => {
+    if (!selectedLocation || !cityName) return;
+    setSelectedCity(cityName);
+    setIsSearchingLocation(true);
+
+    setTimeout(() => {
+      setIsSearchingLocation(false);
+      const randomDist = (Math.random() * (3.5 - 0.8) + 0.8).toFixed(1);
+      setLocationFound({
+        distance: randomDist,
+        city: cityName
+      });
+    }, 1500);
+  };
+
+  const confirmLocation = () => {
+    if (selectedLocation && selectedCity && typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "user-location",
+        JSON.stringify({ stateUF: selectedLocation, city: selectedCity })
+      );
+    }
+    setIsLocationModalOpen(false);
+  };
+
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (view === "payment" && timeLeft > 0) {
@@ -692,7 +789,7 @@ export default function Home() {
         {/* Cover Image */}
         <div className="relative h-64 w-full">
           <Image
-            src="/assets/header-bg-final.png"
+            src="/assets/header-bg.png"
             alt="Açaí Cover"
             fill
             className="object-cover"
@@ -886,6 +983,157 @@ export default function Home() {
           </div>
         </div>
       )}
+      {/* Location Selector Modal */}
+      {isLocationModalOpen && view === "menu" && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-900/60 backdrop-blur-sm p-4 animate-fade-in-soft">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl animate-slide-up-soft relative overflow-hidden">
+            {/* Decorative Background */}
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-purple-100 rounded-full blur-2xl opacity-50"></div>
+            <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-32 h-32 bg-purple-100 rounded-full blur-2xl opacity-50"></div>
+
+            {!locationFound ? (
+              <div className="relative z-10">
+                <div className="flex justify-center mb-6">
+                  <div className="h-16 w-16 bg-purple-50 rounded-full flex items-center justify-center shadow-inner">
+                    <MapPinIcon />
+                  </div>
+                </div>
+
+                <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Onde você está?</h2>
+                <p className="text-center text-gray-500 text-sm mb-8">Selecione seu estado para encontrarmos a unidade mais próxima de você.</p>
+
+                {isSearchingLocation ? (
+                  <div className="flex flex-col items-center justify-center py-4 space-y-4">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-purple-600"></div>
+                    <span className="text-sm font-medium text-purple-600 animate-pulse">Buscando unidades...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-5 rounded-3xl bg-gradient-to-b from-purple-50/80 to-white border border-purple-100 px-3 py-4 shadow-sm">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                          Escolha o estado
+                        </span>
+                        <span className="text-[11px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                          Passo 1 de 2
+                        </span>
+                      </div>
+                      <div className="rounded-2xl bg-white/80 border border-purple-50 px-3 py-3 max-h-40 overflow-y-auto">
+                        <div className="flex flex-wrap gap-2">
+                          {BRAZIL_STATES.map(state => {
+                            const isActive = selectedLocation === state.uf;
+                            return (
+                              <button
+                                key={state.uf}
+                                type="button"
+                                onClick={() => handleStateSelect(state.uf)}
+                                className={`px-3 py-2 rounded-full text-xs font-semibold transition-all border ${
+                                  isActive
+                                    ? "bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200"
+                                    : "bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50"
+                                }`}
+                              >
+                                {state.name} ({state.uf})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedLocation && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                            Agora escolha a cidade
+                          </span>
+                          <span className="text-[11px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                            Passo 2 de 2
+                          </span>
+                        </div>
+                        <div className="rounded-2xl bg-white/80 border border-purple-50 px-3 py-3 max-h-40 overflow-y-auto">
+                          <div className="flex flex-wrap gap-2">
+                            {(citiesByState[selectedLocation] && citiesByState[selectedLocation].length > 0
+                              ? citiesByState[selectedLocation]
+                              : ["Sua cidade"]
+                            ).map(city => {
+                              const isActive = selectedCity === city;
+                              return (
+                                <button
+                                  key={city}
+                                  type="button"
+                                  onClick={() => handleCitySelect(city)}
+                                  className={`px-3 py-2 rounded-full text-xs font-semibold transition-all border ${
+                                    isActive
+                                      ? "bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200"
+                                      : "bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50"
+                                  }`}
+                                >
+                                  {city}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {selectedCity && (
+                          <div className="mt-1 flex items-center justify-between px-1">
+                            <span className="text-[11px] text-gray-500">
+                              Você selecionou:
+                            </span>
+                            <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
+                              {selectedCity} • {selectedLocation}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="relative z-10 flex flex-col items-center text-center">
+                <div className="h-20 w-20 bg-green-50 rounded-full flex items-center justify-center mb-6 animate-[scale-up_0.5s_ease-out_both] shadow-inner">
+                  <span className="text-3xl">🎉</span>
+                </div>
+
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Encontramos!</h2>
+
+                <div className="bg-purple-50 rounded-2xl p-4 w-full mb-6 border border-purple-100">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="h-8 w-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
+                      <MapPinIcon />
+                    </div>
+                    <div className="text-left">
+                      <h4 className="font-bold text-gray-900 line-clamp-1">Açaí do Paraíso - {locationFound.city}</h4>
+                      <p className="text-xs text-green-600 font-bold flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        Aberta agora
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500 border-t border-purple-100/50 pt-2 mt-2">
+                    <span>Distância estimada</span>
+                    <span className="font-bold text-gray-900">{locationFound.distance} km</span>
+                  </div>
+                </div>
+
+                <p className="text-sm text-gray-500 mb-8 max-w-[200px]">
+                  Temos uma unidade novinha pertinho de você. Pode pedir!
+                </p>
+
+                <button
+                  onClick={confirmLocation}
+                  className="w-full rounded-2xl bg-purple-600 py-4 text-base font-bold text-white shadow-xl shadow-purple-200 transition-transform active:scale-95 hover:bg-purple-700 hover:shadow-purple-300"
+                >
+                  Ver Cardápio
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Addon Modal */}
       {isAddonModalOpen && customizingProduct && (
         <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/60 backdrop-blur-sm animate-fade-in-soft p-4 sm:p-0">
